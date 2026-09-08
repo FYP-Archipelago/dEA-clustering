@@ -19,7 +19,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--birch", action="store_true", help="Enable BIRCH")
     parser.add_argument("--denstream", action="store_true", help="Enable DenStream")
 
-    parser.add_argument("--plot", action="store_true", help="Plot the STN (Level 0 vs clustered)")
+    parser.add_argument("--plot", action="store_true", help="Plot the base STN and clustered STNs (saved to stn.png)")
+    parser.add_argument("--fplot", action="store_true", help="Plot the STN with nodes plotted by fitness (saved to fitness-stn.png)")
     parser.add_argument("-o", "--out", type=Path, default=None, help="Output directory (default out/<run id>)")
 
     parser.add_argument("-c", "--config", type=Path, default=None, help="Custom YAML config path; see config/default.yaml")
@@ -39,9 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or Path("out") / args.run.resolve().name
 
     # Run the actual clustering pipeline
-    result = run(args.run, out, config, baseline=args.plot and config.any_stage_enabled)
+    need_baseline = (args.plot or args.fplot) and config.any_stage_enabled
+    result = run(args.run, out, config, baseline=need_baseline)
 
-    # Plot and render STN if added as a flag
+    # Plot and render STN if --plot is set
     image = None
     if args.plot:
         from .plot import render
@@ -52,6 +54,23 @@ def main(argv: list[str] | None = None) -> int:
             result.stn,
             RunDirectory(args.run).read_metadata(),
             result.out_dir / "stn.png",
+            baseline=result.baseline_stn,
+            layout=result.layout,
+            baseline_layout=result.baseline_layout,
+            stages=stages,
+        )
+
+    # Plot and render fitness STN if --fplot is set
+    fimage = None
+    if args.fplot:
+        from .plot import render_fitness
+        from .reader import RunDirectory
+
+        stages = " -> ".join(k for k, v in config.stage_flags().items() if v)
+        fimage = render_fitness(
+            result.stn,
+            RunDirectory(args.run).read_metadata(),
+            result.out_dir / "fitness-stn.png",
             baseline=result.baseline_stn,
             layout=result.layout,
             baseline_layout=result.baseline_layout,
@@ -83,7 +102,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     
     print(f"Pipeline ran successfully in {result.elapsed_seconds:.2f}s")
-    print(f"Artifacts saved to {result.out_dir} {'(STN plot saved to stn.png)' if image else ''}")    
+    saved = []
+    if image:
+        saved.append("stn.png")
+    if fimage:
+        saved.append("fitness-stn.png")
+    suffix = f" ({', '.join(saved)} saved)" if saved else ""
+    print(f"Artifacts saved to {result.out_dir}{suffix}")
     return 0
 
 
