@@ -19,6 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--birch", action="store_true", help="Enable BIRCH")
     parser.add_argument("--denstream", action="store_true", help="Enable DenStream")
 
+    parser.add_argument("--plot", action="store_true", help="Plot the STN (Level 0 vs clustered)")
     parser.add_argument("-o", "--out", type=Path, default=None, help="Output directory (default out/<run id>)")
 
     parser.add_argument("-c", "--config", type=Path, default=None, help="Custom YAML config path; see config/default.yaml")
@@ -38,7 +39,24 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or Path("out") / args.run.resolve().name
 
     # Run the actual clustering pipeline
-    result = run(args.run, out, config, config.any_stage_enabled)
+    result = run(args.run, out, config, baseline=args.plot and config.any_stage_enabled)
+
+    # Plot and render STN if added as a flag
+    image = None
+    if args.plot:
+        from .plot import render
+        from .reader import RunDirectory
+
+        stages = " -> ".join(k for k, v in config.stage_flags().items() if v)
+        image = render(
+            result.stn,
+            RunDirectory(args.run).read_metadata(),
+            result.out_dir / "stn.png",
+            baseline=result.baseline_stn,
+            layout=result.layout,
+            baseline_layout=result.baseline_layout,
+            stages=stages,
+        )
 
     # Extract run statistics from manifest
     manifest = json.loads((result.out_dir / "manifest.json").read_text())
@@ -63,9 +81,9 @@ def main(argv: list[str] | None = None) -> int:
         f" {counts['node_migration_edges']} migration |"
         f" {counts['self_loops']:,} self-loops\n"
     )
-
+    
     print(f"Pipeline ran successfully in {result.elapsed_seconds:.2f}s")
-    print(f"Artifacts saved to {result.out_dir}")
+    print(f"Artifacts saved to {result.out_dir} {'(STN plot saved to stn.png)' if image else ''}")    
     return 0
 
 
